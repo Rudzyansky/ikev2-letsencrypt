@@ -110,9 +110,9 @@ ln -sf "$certsDir"/chain.pem "$ipsecDir"/cacerts/ca."$DOMAIN".crt
 #
 
 SAVEIFS=$IFS;IFS=$','
-dns=${DNS[*]}
-ike=${IKE[*]}
-esp=${ESP[*]}
+dns="${DNS[*]}"
+ike="${IKE[*]}"
+esp="${ESP[*]}"
 IFS=$SAVEIFS;unset SAVEIFS
 
 mv /etc/strongswan/ipsec.conf{,~}
