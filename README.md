@@ -18,23 +18,14 @@ Where `vpn.example.com` is the FQDN (for connecting and cert), `support@example.
 # Client connection
 ## RouterOS
 
-<details><summary>Firewall</summary>
-
-```routeros
-/ip firewall mangle add action=change-mss chain=forward comment="IKE2: Clamp TCP MSS from LAN to ANY" ipsec-policy=in,ipsec new-mss=1360 passthrough=yes protocol=tcp tcp-flags=syn tcp-mss=!0-1360
-/ip firewall mangle add action=change-mss chain=forward comment="IKE2: Clamp TCP MSS from ANY to LAN" ipsec-policy=out,ipsec new-mss=1360 passthrough=yes protocol=tcp tcp-flags=syn tcp-mss=!0-1360
-
-/ip firewall mangle add action=mark-connection chain=prerouting comment="Mark tunnel list to IPSec tunnel" dst-address-list=tunnel new-connection-mark=tunnel passthrough=yes
-
-/ip firewall address-list add list=tunnel address=2ip.ru
-```
-</details>
-
+### CA certificate import
 ```routeros
 /tool fetch url="https://letsencrypt.org/certs/isrgrootx1.pem"
 /certificate import passphrase="" file-name=isrgrootx1.pem
-/file remove isrgrootx1.pem
+```
 
+### Peer setup
+```routeros
 /ip ipsec policy group add name=vpn
 /ip ipsec mode-config add name=vpn responder=no connection-mark=tunnel
 
@@ -43,6 +34,22 @@ Where `vpn.example.com` is the FQDN (for connecting and cert), `support@example.
 
 /ip ipsec peer add name=vpn address="vpn.example.com" profile=vpn exchange-mode=ike2 
 /ip ipsec identity add peer=vpn auth-method=eap eap-methods=eap-mschapv2 username="user1" password="p@ssw0rd" policy-template-group=vpn mode-config=vpn generate-policy=port-strict
+```
+
+### Change MSS
+```routeros
+/ip firewall mangle add action=change-mss chain=forward comment="IKE2: Clamp TCP MSS from LAN to ANY" ipsec-policy=in,ipsec new-mss=1360 passthrough=yes protocol=tcp tcp-flags=syn tcp-mss=!0-1360
+/ip firewall mangle add action=change-mss chain=forward comment="IKE2: Clamp TCP MSS from ANY to LAN" ipsec-policy=out,ipsec new-mss=1360 passthrough=yes protocol=tcp tcp-flags=syn tcp-mss=!0-1360
+```
+
+### Creating rule for tunnel
+```routeros
+/ip firewall mangle add action=mark-connection chain=prerouting comment="Mark tunnel list to IPSec tunnel" dst-address-list=tunnel new-connection-mark=tunnel passthrough=yes
+```
+
+### Append address to list
+```routeros
+/ip firewall address-list add list=tunnel address=2ip.ru
 ```
 
 ## Windows
