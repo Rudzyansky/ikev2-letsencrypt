@@ -27,7 +27,7 @@ Where `vpn.example.com` is the FQDN (for connecting and cert), `support@example.
 ### Peer setup
 ```routeros
 /ip ipsec policy group add name=vpn
-/ip ipsec mode-config add name=vpn responder=no connection-mark=tunnel
+/ip ipsec mode-config add name=vpn responder=no connection-mark=vpn
 
 /ip ipsec profile add name=vpn hash-algorithm=sha384 enc-algorithm=aes-256 dh-group=ecp384
 /ip ipsec proposal add name=vpn auth-algorithms=sha256 enc-algorithms=aes-256-cbc pfs-group=modp2048
@@ -42,14 +42,14 @@ Where `vpn.example.com` is the FQDN (for connecting and cert), `support@example.
 /ip firewall mangle add action=change-mss chain=forward comment="IKE2: Clamp TCP MSS from ANY to LAN" ipsec-policy=out,ipsec new-mss=1360 passthrough=yes protocol=tcp tcp-flags=syn tcp-mss=!0-1360
 ```
 
-### Creating rule for tunnel
+### Create a rule for tunnel
 ```routeros
-/ip firewall mangle add action=mark-connection chain=prerouting comment="Mark tunnel list to IPSec tunnel" dst-address-list=tunnel new-connection-mark=tunnel passthrough=yes
+/ip firewall mangle add action=mark-connection chain=prerouting comment="Mark vpn list to IPSec vpn" dst-address-list=vpn new-connection-mark=vpn passthrough=yes
 ```
 
 ### Append address to list
 ```routeros
-/ip firewall address-list add list=tunnel address=2ip.ru
+/ip firewall address-list add list=vpn address=2ip.ru
 ```
 
 ## Windows
