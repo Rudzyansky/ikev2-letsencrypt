@@ -174,7 +174,7 @@ setsebool -P domain_can_mmap_files on
 # Certbot renewal service configuring
 #
 
-sed -i "/^DEPLOY_HOOK=/s/\"\"/\"--deploy-hook 'strongswan reload'\"/" /etc/sysconfig/certbot
+sed -i "/^DEPLOY_HOOK=/s/\"\"/\"--deploy-hook 'strongswan rereadall'\"/" /etc/sysconfig/certbot
 
 #
 # Services
