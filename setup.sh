@@ -2,13 +2,11 @@
 
 #
 # Usage
-#   ssh vpn 'curl -s https://false.team/ikev2 | sudo bash -s vpn.example.com support@example.com user1 user2'
+#   ssh vpn 'curl -sL https://false.team/ikev2 | sudo bash -s vpn.example.com support@example.com user1 user2'
 #
 # The credentials will be printed at the end
 #
-# Tested on
-#   Oracle Linux 8.5 (aarch64)
-#   CentOS Stream 8 (x86_64)
+# Attention: Untested
 #
 # https://github.com/Rudzyansky/ikev2-letsencrypt
 #
@@ -23,14 +21,20 @@ yum -yq install certbot strongswan pwgen
 DOMAIN="$1"
 E_MAIL="$2"
 
+# Allowed values: stroke, vici
+CONF_TYPE='vici'
+
+CONF_DIR='/etc/strongswan'
+CERTS_DIR="/etc/letsencrypt/live/$DOMAIN"
+
 USERS=(${@:3}) # no spaces in username
-PASSW=(`pwgen -s -1 16 "${#USERS[@]}"`)
+PASSW=($(pwgen -s -1 16 "${#USERS[@]}"))
 
 VPN_SUBNET="172.$(( RANDOM % 16 + 16 )).$(( RANDOM % 256 )).0/24"
 
 DNS=(
-	8.8.8.8
-	8.8.4.4
+	9.9.9.9
+	149.112.112.112
 )
 
 IKE=(
@@ -63,6 +67,20 @@ ESP=(
 	aes256-sha384	aes256-sha256	aes256-sha1
 )
 
+TMP_IFS=$IFS; IFS=$','
+
+dns="${DNS[*]}"
+ike="${IKE[*]}"
+esp="${ESP[*]}"
+
+IFS=$TMP_IFS; unset TMP_IFS
+
+#
+# Workaround for: 00[CFG] opening secrets file '/etc/strongswan/ipsec.secrets' failed: Permission denied
+#
+
+setsebool -P domain_can_mmap_files on
+
 #
 # Network
 #
@@ -93,35 +111,43 @@ EOF
 sysctl -p
 
 #
+# Setup renew hook for certbot service
+#
+
+touch "$CONF_DIR"/reload-certs.sh
+chmod 755 "$CONF_DIR"/reload-certs.sh
+sed -re 's|^(DEPLOY_HOOK)=".*"$|\1="--deploy-hook /stc/strongswan/reload-certs.sh"|' -i /etc/sysconfig/certbot
+
+#
 # Certificates
 #
 
 certbot certonly --rsa-key-size 4096 --standalone --agree-tos --no-eff-email --email "$E_MAIL" -d "$DOMAIN"
 
-certsDir="/etc/letsencrypt/live/$DOMAIN"
-ipsecDir="/etc/strongswan/ipsec.d"
-
-ln -sf "$certsDir"/fullchain.pem "$ipsecDir"/certs/"$DOMAIN".crt
-ln -sf "$certsDir"/privkey.pem "$ipsecDir"/private/"$DOMAIN".key
-ln -sf "$certsDir"/chain.pem "$ipsecDir"/cacerts/ca."$DOMAIN".crt
-
 #
-# Strongswan
+# Creating secrets file
 #
 
-SAVEIFS=$IFS
-IFS=$','
+mv "$CONF_DIR"/ipsec.secrets{,~}
+touch "$CONF_DIR"/ipsec.secrets
+chmod 600 "$CONF_DIR"/ipsec.secrets
+cat << EOF > "$CONF_DIR"/ipsec.secrets
+$(for i in "${!USERS[@]}"; do printf '%s : EAP "%s"\n' "${USERS[i]}" "${PASSW[i]}"; done)
+EOF
 
-dns="${DNS[*]}"
-ike="${IKE[*]}"
-esp="${ESP[*]}"
+#
+# Stroke configuration style
+#
 
-IFS=$SAVEIFS
-unset SAVEIFS
+function stroke_conf {
+	# Certificates
+	ln -sf "$CERTS_DIR"/chain.pem     "$CONF_DIR"/ipsec.d/cacerts/"$DOMAIN"
+	ln -sf "$CERTS_DIR"/fullchain.pem "$CONF_DIR"/ipsec.d/certs/"$DOMAIN"
+	ln -sf "$CERTS_DIR"/privkey.pem   "$CONF_DIR"/ipsec.d/private/"$DOMAIN"
 
-mv /etc/strongswan/ipsec.conf{,~}
-
-cat << EOF > /etc/strongswan/ipsec.conf
+	# Strongswan
+	mv "$CONF_DIR"/ipsec.conf{,~}
+	cat << EOF > "$CONF_DIR"/ipsec.conf
 # https://wiki.strongswan.org/projects/strongswan/wiki/IpsecConf
 
 config setup
@@ -138,7 +164,7 @@ conn rw-config
 	rightdns=$dns
 	leftsubnet=0.0.0.0/0
 	leftid=@$DOMAIN
-	leftcert=$DOMAIN.crt
+	leftcert=$DOMAIN
 	leftsendcert=always
 	# not possible with asymmetric authentication
 	reauth=no
@@ -155,32 +181,103 @@ conn ikev2-eap-mschapv2
 	auto=add
 EOF
 
-mv /etc/strongswan/ipsec.secrets{,~}
+	# Secrets
+	echo ": RSA $DOMAIN" >> "$CONF_DIR"/ipsec.secrets
 
-cat << EOF > /etc/strongswan/ipsec.secrets
-: RSA "$DOMAIN.key"
-$(for i in "${!USERS[@]}"; do printf '%s : EAP "%s"\n' "${USERS[i]}" "${PASSW[i]}"; done)
+	# Setup renew hook for certbot service
+	cat << EOF > "$CONF_DIR"/reload-certs.sh
+#!/bin/sh
+
+strongswan purgecerts
+strongswan rereadall
 EOF
 
-chmod 600 /etc/strongswan/ipsec.secrets
+	# Service
+	systemctl enable --now strongswan-starter
+}
 
 #
-# Workaround for: 00[CFG] opening secrets file '/etc/strongswan/ipsec.secrets' failed: Permission denied
+# Vici configuration style
 #
 
-setsebool -P domain_can_mmap_files on
+function vici_conf {
+	# Certificates
+	ln -sf "$CERTS_DIR"/chain.pem     "$CONF_DIR"/swanctl/x509ca/"$DOMAIN"
+	ln -sf "$CERTS_DIR"/fullchain.pem "$CONF_DIR"/swanctl/x509/"$DOMAIN"
+	ln -sf "$CERTS_DIR"/privkey.pem   "$CONF_DIR"/swanctl/private/"$DOMAIN"
+
+	# Strongswan
+	mv "$CONF_DIR"/swanctl/swanctl.conf{,~}
+	cat << EOF > "$CONF_DIR"/swanctl/swanctl.conf
+# https://docs.strongswan.org/docs/5.9/swanctl/swanctlConf.html
+# https://wiki.strongswan.org/projects/strongswan/wiki/Fromipsecconf
+
+connections {
+	rw-eap-mschapv2 {
+		version = 2
+		unique = never
+		local {
+			auth = pubkey
+			certs = $DOMAIN
+			id = @$DOMAIN
+		}
+		remote {
+			auth = eap-mschapv2
+			eap_id = %any
+			revocation = strict
+		}
+		send_cert = always
+		send_certreq = no
+		children {
+			net {
+				local_ts = 0.0.0.0/0
+				esp_proposals = $esp
+			}
+		}
+		proposals = $ike
+		encap = yes
+		pools = virtual
+	}
+}
+
+pools {
+	virtual {
+		addrs = $VPN_SUBNET
+		dns = $dns
+	}
+}
+
+secrets {  # Do not create records with same id. It will be replaces previous secret
+#	eap-user1 {
+#		id = "fqdn:#{USERNAME_IN_HEX}"
+#		secret = 0s{PASSWORD_IN_BASE64}
+#	}
+}
+EOF
+
+	# Setup renew hook for certbot service
+	cat << EOF > "$CONF_DIR"/reload-certs.sh
+#!/bin/sh
+
+swanctl --flush-certs
+swanctl --load-creds --clear
+EOF
+
+	# Service
+	systemctl enable --now strongswan
+}
+
+
+case "$CONF_TYPE" in
+	stroke ) stroke_conf; break ;;
+	vici ) vici_conf; break ;;
+	* ) echo "Unknown type '$CONF_TYPE'"; return ;;
+esac
 
 #
-# Certbot renewal service configuring
+# Certbot service
 #
 
-sed -i "/^DEPLOY_HOOK=/s/\"\"/\"--deploy-hook 'strongswan rereadall'\"/" /etc/sysconfig/certbot
-
-#
-# Services
-#
-
-systemctl enable --now strongswan-starter
 systemctl enable --now certbot-renew.timer
 
 #
