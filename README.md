@@ -10,7 +10,7 @@ If you need a CA certificate (e.g. in the RouterOS), you can download it from th
 ## Launch
 
 ```bash
-ssh vpn 'curl -s https://false.team/ikev2 | sudo bash -s vpn.example.com support@example.com user1 user2'
+ssh vpn 'curl -sL https://false.team/ikev2 | sudo bash -s vpn.example.com support@example.com user1 user2'
 ```
 
 Where `vpn.example.com` is the FQDN (for connecting and cert), `support@example.com` is the e-mail for notifications from Let's Encrypt, `user1 user2` is the users set separated by a space.
