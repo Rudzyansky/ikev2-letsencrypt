@@ -116,7 +116,7 @@ sysctl -p
 
 touch "$CONF_DIR"/reload-certs.sh
 chmod 755 "$CONF_DIR"/reload-certs.sh
-sed -re 's|^(DEPLOY_HOOK)=".*"$|\1="--deploy-hook /stc/strongswan/reload-certs.sh"|' -i /etc/sysconfig/certbot
+sed -re 's|^(DEPLOY_HOOK)=".*"$|\1="--deploy-hook /etc/strongswan/reload-certs.sh"|' -i /etc/sysconfig/certbot
 
 #
 # Certificates
